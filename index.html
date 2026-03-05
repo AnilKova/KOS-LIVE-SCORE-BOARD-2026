@@ -533,9 +533,37 @@ function testConnection(){
 // ── FETCH ──
 const FETCH_OPTS={redirect:'follow',mode:'cors',credentials:'omit'};
 function fetchScores(){
-  fetch(SCRIPT_URL+'?type=scoreboard',FETCH_OPTS).then(r=>r.json()).then(json=>{
-    if(json.status==='ok'){allData=json.data;document.getElementById('lastUpdated').textContent=json.updated;renderSb();}
-  }).catch(()=>{});
+  fetch(SCRIPT_URL+'?type=scoreboard',FETCH_OPTS)
+    .then(r=>r.json())
+    .then(json=>{
+      if(json.status==='ok'){
+        allData=json.data;
+        document.getElementById('lastUpdated').textContent=json.updated;
+        renderSb();
+      } else {
+        document.getElementById('sbMainContent').innerHTML=
+          '<div class="empty-box" style="margin-top:4rem"><span class="empty-icon">&#9888;</span>Script error: '+json.message+'</div>';
+      }
+    })
+    .catch(()=>{
+      // Try XHR fallback
+      const xhr=new XMLHttpRequest();
+      xhr.open('GET',SCRIPT_URL+'?type=scoreboard',true);
+      xhr.onload=()=>{
+        try{
+          const json=JSON.parse(xhr.responseText);
+          if(json.status==='ok'){allData=json.data;document.getElementById('lastUpdated').textContent=json.updated;renderSb();}
+        }catch(e){
+          document.getElementById('sbMainContent').innerHTML=
+            '<div class="empty-box" style="margin-top:4rem"><span class="empty-icon">&#9888;</span>Cannot load scores.<br><span style="font-size:0.7rem;opacity:0.6">Check SCRIPT_URL is correct and redeployed</span></div>';
+        }
+      };
+      xhr.onerror=()=>{
+        document.getElementById('sbMainContent').innerHTML=
+          '<div class="empty-box" style="margin-top:4rem"><span class="empty-icon">&#9888;</span>Cannot reach server.<br><span style="font-size:0.7rem;opacity:0.6">Check SCRIPT_URL and deployment</span></div>';
+      };
+      xhr.send();
+    });
 }
 function loadAdminData(){
   setStatus('<span class="saving-dot"></span> Loading...','');
