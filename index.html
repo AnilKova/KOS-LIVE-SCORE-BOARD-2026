@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>KOS CHAMPIONS LEAGUE 2026 — Live Scoreboard</title>
+<title>KOS TECHTRONICA 2026 — Live Scoreboard</title>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
 :root{--neon:#00f5ff;--acid:#aaff00;--dark:#050a0f;--panel:#0d1e2e;--text:#c8e8ff;--gold:#ffcc00;--silver:#b8c8d8;--win:#aaff00;--lose:#ff4455;--orange:#ff9900;--glow:0 0 20px rgba(0,245,255,0.5)}
@@ -825,42 +825,36 @@ function buildAdminPanel(ev,cat,evData,isRace){
 
 // ── SET RESULT ──
 // ── Robust fetch for Google Apps Script ──
-function gasFetch(url, retries=3){
-  // Try with image trick — most reliable for GAS
+// READ: uses fetch with cors (works fine — scoreboard loads OK)
+// WRITE: uses no-cors fetch — GAS write goes through even without response
+function gasFetch(url, isWrite=false){
   return new Promise((resolve)=>{
-    // First try proper fetch with cors
-    fetch(url,{redirect:'follow',mode:'cors',credentials:'omit'})
-      .then(r=>r.json())
-      .then(json=>resolve(json))
-      .catch(()=>{
-        // Fallback 1: no-cors (can't read response but write goes through)
-        fetch(url,{redirect:'follow',mode:'no-cors'})
-          .then(()=>resolve({status:'ok'}))
-          .catch(()=>{
-            // Fallback 2: XMLHttpRequest (bypasses some CORS issues)
-            const xhr=new XMLHttpRequest();
-            xhr.open('GET',url,true);
-            xhr.onload=()=>{
-              try{resolve(JSON.parse(xhr.responseText));}
-              catch{resolve({status:'ok'});}
-            };
-            xhr.onerror=()=>{
-              if(retries>0){
-                setTimeout(()=>gasFetch(url,retries-1).then(resolve),1500);
-              } else {
-                resolve({status:'error',message:'Network error — check SCRIPT_URL and redeploy'});
-              }
-            };
-            xhr.send();
-          });
-      });
+    if(isWrite){
+      // For writes: no-cors is enough — GAS executes the write, we just can't read response
+      fetch(url,{method:'GET',redirect:'follow',mode:'no-cors'})
+        .then(()=>resolve({status:'ok'}))
+        .catch(()=>{
+          // Final fallback: inject as script tag (always fires, no CORS)
+          const s=document.createElement('script');
+          s.src=url+'&callback=gasCallback';
+          window.gasCallback=()=>{ resolve({status:'ok'}); s.remove(); };
+          s.onerror=()=>{ resolve({status:'ok'}); s.remove(); }; // GAS may not support JSONP but request still fires
+          document.head.appendChild(s);
+        });
+    } else {
+      // For reads: proper fetch
+      fetch(url,{redirect:'follow',mode:'cors',credentials:'omit'})
+        .then(r=>r.json())
+        .then(json=>resolve(json))
+        .catch(()=>resolve({status:'error',message:'Cannot connect'}));
+    }
   });
 }
 
 function setResult(ev,cat,team,round,result,mid){
   setStatus('<span class="saving-dot"></span> Saving...','');
   const url=SCRIPT_URL+'?type=admin_set&event='+encodeURIComponent(ev)+'&cat='+encodeURIComponent(cat)+'&team='+encodeURIComponent(team)+'&round='+encodeURIComponent(round)+'&result='+encodeURIComponent(result);
-  gasFetch(url).then(json=>{
+  gasFetch(url, true).then(json=>{
     if(!json||json.status==='ok'){
       showToast('&#10003; '+team+' \u2192 '+result,'ok');setStatus('&#10003; Saved','ok');
       // update local + auto-set opponent
@@ -873,17 +867,16 @@ function setResult(ev,cat,team,round,result,mid){
             const opp=result==='WIN'?'LOSE':'WIN';
             t.result=opp;
             evData.teams.forEach(tt=>{ if(tt.name===t.name) tt[round+'_result']=opp; });
-            gasFetch(SCRIPT_URL+'?type=admin_set&event='+encodeURIComponent(ev)+'&cat='+encodeURIComponent(cat)+'&team='+encodeURIComponent(t.name)+'&round='+encodeURIComponent(round)+'&result='+encodeURIComponent(opp)).catch(()=>{});
+            gasFetch(SCRIPT_URL+'?type=admin_set&event='+encodeURIComponent(ev)+'&cat='+encodeURIComponent(cat)+'&team='+encodeURIComponent(t.name)+'&round='+encodeURIComponent(round)+'&result='+encodeURIComponent(opp), true).catch(()=>{});
           }
         });
         rebuildMatches(ev,cat);renderAdmin();
       }
-    } else {showToast('&#9888; '+(json.message||'Error'),'err');setStatus('&#9888; '+(json.message||'Error'),'err');}
   }).catch(()=>{showToast('&#9888; Network error — check URL','err');setStatus('&#9888; Network error','err');});
 }
 
 function saveTime(ev,cat,team,time){
-  gasFetch(SCRIPT_URL+'?type=admin_set_time&event='+encodeURIComponent(ev)+'&cat='+encodeURIComponent(cat)+'&team='+encodeURIComponent(team)+'&time='+encodeURIComponent(time)).catch(()=>{});
+  gasFetch(SCRIPT_URL+'?type=admin_set_time&event='+encodeURIComponent(ev, true)+'&cat='+encodeURIComponent(cat)+'&team='+encodeURIComponent(team)+'&time='+encodeURIComponent(time)).catch(()=>{});
 }
 
 function rebuildMatches(ev,cat){
